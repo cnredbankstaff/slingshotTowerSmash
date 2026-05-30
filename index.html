@@ -25,21 +25,25 @@
    <canvas id="gameCanvas"></canvas><!-- HUD -->
    <div id="hud" class="absolute top-0 left-0 w-full p-3 flex justify-between items-center pointer-events-none" style="display:none;">
     <div class="flex items-center gap-4">
-     <div class="bg-black/50 rounded-xl px-4 py-2 text-white fredoka text-lg"><span id="scoreDisplay">Score: 0</span>
+     <div class="bg-black/50 rounded-xl px-4 py-2 text-white fredoka text-lg">
+      <span id="scoreDisplay">Score: 0</span>
      </div>
-     <div class="bg-black/50 rounded-xl px-4 py-2 text-white fredoka text-lg"><span id="bestDisplay">Best: 0</span>
+     <div class="bg-black/50 rounded-xl px-4 py-2 text-white fredoka text-lg">
+      <span id="bestDisplay">Best: 0</span>
      </div>
     </div>
     <div class="flex items-center gap-4">
      <div id="birdsDisplay" class="bg-black/50 rounded-xl px-4 py-2 text-white fredoka text-lg"></div>
-     <div class="bg-black/50 rounded-xl px-4 py-2 text-yellow-300 fredoka text-lg"><span id="modeDisplay">Easy</span>
+     <div class="bg-black/50 rounded-xl px-4 py-2 text-yellow-300 fredoka text-lg">
+      <span id="modeDisplay">Easy</span>
      </div>
     </div>
    </div><!-- Menu -->
    <div id="menu" class="absolute inset-0 flex flex-col items-center justify-center" style="background: linear-gradient(180deg, #87CEEB 0%, #4BA3D4 100%);">
     <h1 id="titleText" class="fredoka text-5xl md:text-7xl text-white mb-2 drop-shadow-lg">Slingshot Tower Smash</h1>
     <p class="fredoka text-xl text-white/80 mb-8">Destroy towers with physics!</p>
-    <div class="flex flex-col gap-3 w-64"><button class="btn-mode bg-green-500 hover:bg-green-600 text-white fredoka text-xl py-3 rounded-xl shadow-lg" onclick="startGame('easy')">🟢 Easy</button> <button class="btn-mode bg-yellow-500 hover:bg-yellow-600 text-white fredoka text-xl py-3 rounded-xl shadow-lg" onclick="startGame('medium')">🟡 Medium</button> <button class="btn-mode bg-red-500 hover:bg-red-600 text-white fredoka text-xl py-3 rounded-xl shadow-lg" onclick="startGame('hard')">🔴 Hard</button>
+    <div class="flex flex-col gap-3 w-64">
+     <button class="btn-mode bg-green-500 hover:bg-green-600 text-white fredoka text-xl py-3 rounded-xl shadow-lg" onclick="startGame('easy')">🟢 Easy</button> <button class="btn-mode bg-yellow-500 hover:bg-yellow-600 text-white fredoka text-xl py-3 rounded-xl shadow-lg" onclick="startGame('medium')">🟡 Medium</button> <button class="btn-mode bg-red-500 hover:bg-red-600 text-white fredoka text-xl py-3 rounded-xl shadow-lg" onclick="startGame('hard')">🔴 Hard</button>
     </div>
    </div><!-- Game Over -->
    <div id="gameOver" class="absolute inset-0 flex flex-col items-center justify-center bg-black/60" style="display:none;">
@@ -121,8 +125,8 @@ let score = 0, best = 0, birdsLeft = 5;
 let bird = null, blocks = [], particles = [];
 let dragStart = null, dragCurrent = null, isDragging = false;
 let settleTimer = 0;
-const SLINGSHOT_X = 120, SLINGSHOT_Y_OFFSET = -60;
-const GRAVITY = 0.35, FRICTION = 0.98, BOUNCE = 0.4;
+const SLINGSHOT_X = 150, SLINGSHOT_Y_OFFSET = -140;
+const GRAVITY = 0.35, FRICTION = 0.94, BOUNCE = 0.4;
 const MAX_PULL = 120;
 
 function resize() {
@@ -131,7 +135,7 @@ function resize() {
   GROUND_Y = H - 60;
   PLATFORM_X = W * 0.6;
   PLATFORM_W = 160;
-  PLATFORM_Y = GROUND_Y;
+  PLATFORM_Y = GROUND_Y - 200;
 }
 window.addEventListener('resize', resize);
 resize();
@@ -148,55 +152,105 @@ function rand(a, b) { return a + Math.random() * (b - a); }
 function generateTower() {
   blocks = [];
   const cfg = {
-    easy: { layers: randInt(3, 5), maxW: 50, stability: 0.3 },
-    medium: { layers: randInt(5, 7), maxW: 45, stability: 0.6 },
-    hard: { layers: randInt(6, 9), maxW: 40, stability: 0.85 }
+    easy: { layers: randInt(3, 5), maxW: 50 },
+    medium: { layers: randInt(5, 7), maxW: 45 },
+    hard: { layers: randInt(6, 9), maxW: 40 }
   }[difficulty];
 
   const baseX = PLATFORM_X + PLATFORM_W / 2;
-  let curY = PLATFORM_Y;
+  let curY = PLATFORM_Y - 8; // Start just above platform
 
   for (let layer = 0; layer < cfg.layers; layer++) {
-    const numBlocks = randInt(1, 3);
+    const numBlocks = difficulty === 'hard' ? randInt(2, 3) : (difficulty === 'medium' ? randInt(1, 2) : 1);
     const blockH = randInt(20, 35);
-    const totalW = numBlocks * cfg.maxW;
-    let startX = baseX - totalW / 2;
+    const blockW = randInt(30, cfg.maxW);
 
-    // Add wobble for easier modes
-    if (Math.random() > cfg.stability) {
-      startX += rand(-15, 15);
+    // For easy: slightly offset for wobble
+    // For medium/hard: perfectly centered
+    let layerOffsetX = 0;
+    if (difficulty === 'easy' && Math.random() < 0.3) {
+      layerOffsetX = rand(-8, 8);
     }
+
+    const totalW = numBlocks * blockW + (numBlocks - 1) * 4;
+    let startX = baseX + layerOffsetX - totalW / 2;
 
     for (let i = 0; i < numBlocks; i++) {
-      const w = randInt(25, cfg.maxW);
-      const type = Math.random() < 0.6 ? 'wood' : 'stone';
-      const offsetX = Math.random() > cfg.stability ? rand(-8, 8) : 0;
+      const type = Math.random() < 0.65 ? 'wood' : 'stone';
+      const x = startX + i * (blockW + 4) + blockW / 2;
+      const y = curY - blockH / 2;
+
       blocks.push({
-        x: startX + i * cfg.maxW + cfg.maxW / 2 + offsetX,
-        y: curY - blockH / 2,
-        w, h: blockH,
+        x, y, w: blockW, h: blockH,
         vx: 0, vy: 0, angle: 0, angVel: 0,
         type, mass: type === 'stone' ? 3 : 1.5,
-        onPlatform: true
+        sleeping: true, // Blocks start sleeping
+        supportedBy: null // Track what block supports this one
       });
     }
-    curY -= blockH;
 
-    // Sometimes add a horizontal plank
-    if (Math.random() < 0.4 && layer < cfg.layers - 1) {
-      const pw = randInt(60, 100);
-      const ph = 10;
-      curY -= ph / 2;
-      blocks.push({
-        x: baseX + (Math.random() > cfg.stability ? rand(-10, 10) : 0),
-        y: curY,
-        w: pw, h: ph,
-        vx: 0, vy: 0, angle: 0, angVel: 0,
-        type: 'plank', mass: 1,
-        onPlatform: true
-      });
-      curY -= ph / 2;
+    // Move up for next layer (no gap, blocks touch)
+    curY -= blockH + 2;
+  }
+
+  // Stabilization pass: run physics for 40 frames to let blocks settle
+  stabilizeTower();
+}
+
+function stabilizeTower() {
+  for (let frame = 0; frame < 40; frame++) {
+    // Update only non-sleeping blocks
+    for (const b of blocks) {
+      if (!b.sleeping) {
+        b.vy += GRAVITY * 0.3; // Reduced gravity during stabilization
+        b.vx *= FRICTION;
+        b.x += b.vx;
+        b.y += b.vy;
+        b.angle += b.angVel;
+        b.angVel *= 0.95;
+      }
     }
+
+    // Check collisions and support
+    for (let i = 0; i < blocks.length; i++) {
+      for (let j = 0; j < blocks.length; j++) {
+        if (i !== j) {
+          resolveBlockCollisionStable(blocks[i], blocks[j]);
+        }
+      }
+    }
+
+    // Platform collisions
+    for (const b of blocks) {
+      if (b.y + b.h / 2 > PLATFORM_Y && b.y - b.h / 2 < PLATFORM_Y + 10) {
+        if (b.vy > 0.5) {
+          b.y = PLATFORM_Y - b.h / 2;
+          b.vy = 0;
+          b.vx = 0;
+          b.angVel = 0;
+          b.sleeping = true;
+        }
+      }
+    }
+
+    // Ground collisions
+    for (const b of blocks) {
+      if (b.y + b.h / 2 > GROUND_Y) {
+        b.y = GROUND_Y - b.h / 2;
+        b.vy = 0;
+        b.vx = 0;
+        b.angVel = 0;
+        b.sleeping = true;
+      }
+    }
+  }
+
+  // After stabilization, lock all blocks in place
+  for (const b of blocks) {
+    b.sleeping = true;
+    b.vx = 0;
+    b.vy = 0;
+    b.angVel = 0;
   }
 }
 
@@ -219,7 +273,12 @@ function updateBird() {
 }
 
 function updateBlocks() {
-  for (const b of blocks) {
+  // Wake up blocks that are hit or lose support
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (b.sleeping) continue;
+
+    // Apply physics
     b.vy += GRAVITY;
     b.vx *= FRICTION;
     b.x += b.vx;
@@ -227,7 +286,7 @@ function updateBlocks() {
     b.angle += b.angVel;
     b.angVel *= 0.95;
 
-    // Ground
+    // Ground collision
     if (b.y + b.h / 2 > GROUND_Y) {
       b.y = GROUND_Y - b.h / 2;
       b.vy *= -BOUNCE * 0.5;
@@ -250,7 +309,7 @@ function updateBlocks() {
     if (b.x > W - b.w / 2) { b.x = W - b.w / 2; b.vx *= -0.3; }
   }
 
-  // Block-block collisions (simple)
+  // Block-block collisions
   for (let i = 0; i < blocks.length; i++) {
     for (let j = i + 1; j < blocks.length; j++) {
       resolveBlockCollision(blocks[i], blocks[j]);
@@ -261,9 +320,9 @@ function updateBlocks() {
   if (bird && bird.active && !bird.landed) {
     for (const b of blocks) {
       if (circleRectCollision(bird, b)) {
+        // Wake up the block
+        b.sleeping = false;
         const speed = Math.sqrt(bird.vx * bird.vx + bird.vy * bird.vy);
-        const nx = (bird.x - b.x) / (Math.max(b.w, b.h));
-        const ny = (bird.y - b.y) / (Math.max(b.w, b.h));
         b.vx += bird.vx * 0.6 / b.mass;
         b.vy += bird.vy * 0.6 / b.mass;
         b.angVel += (Math.random() - 0.5) * 0.1 * speed / b.mass;
@@ -284,26 +343,69 @@ function circleRectCollision(circle, rect) {
   return (dx * dx + dy * dy) < (circle.r * circle.r);
 }
 
+function resolveBlockCollisionStable(a, b) {
+  const dx = a.x - b.x, dy = a.y - b.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const minDist = (Math.max(a.w, a.h) + Math.max(b.w, b.h)) / 2;
+  
+  if (dist < minDist && dist > 0.1) {
+    const nx = dx / dist, ny = dy / dist;
+    const overlap = minDist - dist;
+    
+    // Separate only by exact overlap amount
+    a.x += nx * overlap * 0.5;
+    b.x -= nx * overlap * 0.5;
+  }
+}
+
 function resolveBlockCollision(a, b) {
   const dx = a.x - b.x, dy = a.y - b.y;
-  const overlapX = (a.w + b.w) / 2 - Math.abs(dx);
-  const overlapY = (a.h + b.h) / 2 - Math.abs(dy);
-  if (overlapX > 0 && overlapY > 0) {
-    if (overlapX < overlapY) {
-      const sign = dx > 0 ? 1 : -1;
-      a.x += overlapX * 0.5 * sign;
-      b.x -= overlapX * 0.5 * sign;
-      const relVx = a.vx - b.vx;
-      a.vx -= relVx * 0.5; b.vx += relVx * 0.5;
-    } else {
-      const sign = dy > 0 ? 1 : -1;
-      a.y += overlapY * 0.5 * sign;
-      b.y -= overlapY * 0.5 * sign;
-      const relVy = a.vy - b.vy;
-      a.vy -= relVy * 0.5; b.vy += relVy * 0.5;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const minDist = (Math.max(a.w, a.h) + Math.max(b.w, b.h)) / 2;
+  
+  if (dist < minDist && dist > 0.1) {
+    const relVx = a.vx - b.vx, relVy = a.vy - b.vy;
+    const relSpeed = Math.sqrt(relVx * relVx + relVy * relVy);
+    
+    const nx = dx / dist, ny = dy / dist;
+    const overlap = minDist - dist;
+    
+    // Only separate if blocks are actually colliding
+    const approach = relVx * nx + relVy * ny;
+    if (approach > 0 || overlap > 0.5) {
+      // Wake up sleeping blocks on impact
+      if (a.sleeping && relSpeed > 0.5) a.sleeping = false;
+      if (b.sleeping && relSpeed > 0.5) b.sleeping = false;
+      
+      // Minimal separation - just enough to prevent overlap
+      const separateDist = Math.max(overlap / 2, 0.1);
+      a.x += nx * separateDist;
+      b.x -= nx * separateDist;
+      
+      // Normal impulse
+      if (approach > 0) {
+        const massRatio = b.mass / (a.mass + b.mass);
+        a.vx -= approach * nx * massRatio * 0.5;
+        a.vy -= approach * ny * massRatio * 0.5;
+        b.vx += approach * nx * (1 - massRatio) * 0.5;
+        b.vy += approach * ny * (1 - massRatio) * 0.5;
+      }
+      
+      // High friction between blocks
+      const tx = -ny, ty = nx;
+      const tangentVel = relVx * tx + relVy * ty;
+      
+      if (Math.abs(tangentVel) > 0.05) {
+        const frictionDir = tangentVel > 0 ? 1 : -1;
+        const massRatio = b.mass / (a.mass + b.mass);
+        const frictionMagnitude = Math.abs(tangentVel) * 0.8;
+        
+        a.vx -= frictionDir * tx * frictionMagnitude * massRatio * 1.5;
+        a.vy -= frictionDir * ty * frictionMagnitude * massRatio * 1.5;
+        b.vx += frictionDir * tx * frictionMagnitude * (1 - massRatio) * 1.5;
+        b.vy += frictionDir * ty * frictionMagnitude * (1 - massRatio) * 1.5;
+      }
     }
-    a.angVel += (Math.random() - 0.5) * 0.02;
-    b.angVel += (Math.random() - 0.5) * 0.02;
   }
 }
 
@@ -639,5 +741,5 @@ loop();
 
 lucide.createIcons();
 </script>
- <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a03f6b6dec2652c6',t:'MTc4MDE2MTczMg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a03f8b97787b6749',t:'MTc4MDE2MzA1MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
