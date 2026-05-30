@@ -13,9 +13,29 @@
     html, body { height: 100%; overflow: hidden; }
     canvas { display: block; }
     .fredoka { font-family: 'Fredoka One', cursive; }
-    .btn-mode { transition: all 0.2s; }
+    .btn-mode { transition: all 0.2s; user-select: none; }
     .btn-mode:hover { transform: scale(1.05); }
     .btn-mode:active { transform: scale(0.95); }
+    
+    /* Mobile-optimized text sizes */
+    @media (max-width: 640px) {
+      #titleText { font-size: 2rem !important; }
+      .btn-mode { font-size: 1rem !important; padding: 0.75rem !important; }
+      .bg-black\/50 { font-size: 0.85rem !important; padding: 0.5rem 0.75rem !important; }
+      #menu { padding: 1rem; }
+    }
+    
+    @media (max-width: 480px) {
+      #titleText { font-size: 1.5rem !important; }
+      .btn-mode { font-size: 0.9rem !important; padding: 0.6rem !important; width: 100%; }
+      .flex.flex-col.gap-3 { width: 90vw; max-width: 280px; }
+      #gameOver h2 { font-size: 2rem !important; }
+    }
+    
+    /* Prevent zoom on input focus */
+    input, button, textarea, select {
+      font-size: 16px;
+    }
   </style>
   <style>body { box-sizing: border-box; }</style>
   <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
@@ -126,7 +146,7 @@ let bird = null, blocks = [], particles = [];
 let dragStart = null, dragCurrent = null, isDragging = false;
 let settleTimer = 0;
 const SLINGSHOT_X = 150, SLINGSHOT_Y_OFFSET = -140;
-const GRAVITY = 0.35, FRICTION = 0.94, BOUNCE = 0.4;
+const GRAVITY = 0.35, FRICTION = 0.985, BOUNCE = 0.15;
 const MAX_PULL = 120;
 
 function resize() {
@@ -168,9 +188,6 @@ function generateTower() {
     // For easy: slightly offset for wobble
     // For medium/hard: perfectly centered
     let layerOffsetX = 0;
-    if (difficulty === 'easy' && Math.random() < 0.3) {
-      layerOffsetX = rand(-8, 8);
-    }
 
     const totalW = numBlocks * blockW + (numBlocks - 1) * 4;
     let startX = baseX + layerOffsetX - totalW / 2;
@@ -183,8 +200,9 @@ function generateTower() {
       blocks.push({
         x, y, w: blockW, h: blockH,
         vx: 0, vy: 0, angle: 0, angVel: 0,
-        type, mass: type === 'stone' ? 3 : 1.5,
+        type, mass: type === 'stone' ? 2 : 1,
         sleeping: true, // Blocks start sleeping
+        locked: true, // Blocks start locked
         supportedBy: null // Track what block supports this one
       });
     }
@@ -193,8 +211,7 @@ function generateTower() {
     curY -= blockH + 2;
   }
 
-  // Stabilization pass: run physics for 40 frames to let blocks settle
-  stabilizeTower();
+  // Tower is locked and ready - no stabilization needed
 }
 
 function stabilizeTower() {
@@ -251,6 +268,63 @@ function stabilizeTower() {
     b.vx = 0;
     b.vy = 0;
     b.angVel = 0;
+    b.angle = 0;
+  }
+}
+
+// Check if a block has support beneath it
+function hasSupport(block) {
+  // Check platform support
+  if (block.x > PLATFORM_X && block.x < PLATFORM_X + PLATFORM_W && 
+      block.y + block.h / 2 >= PLATFORM_Y - 5 && block.y + block.h / 2 < PLATFORM_Y + 10) {
+    return true;
+  }
+  
+  // Check ground support
+  if (block.y + block.h / 2 >= GROUND_Y - 5) {
+    return true;
+  }
+  
+  // Check support from other blocks
+  for (const other of blocks) {
+    if (other === block) continue;
+    
+    // Calculate true rectangle overlap
+    const horizontalOverlap = Math.min(block.x + block.w / 2, other.x + other.w / 2) - 
+                               Math.max(block.x - block.w / 2, other.x - other.w / 2);
+    
+    // Other block is directly below this one
+    const verticalSupport = block.y + block.h / 2 >= other.y - other.h / 2 - 5 &&
+                            block.y + block.h / 2 <= other.y + other.h / 2 + 5;
+    
+    // Require at least 30% horizontal overlap for true support
+    if (horizontalOverlap > block.w * 0.3 && verticalSupport) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// Wake up connected blocks
+function wakeConnectedBlocks(block) {
+  // Wake all blocks touching or resting on the hit block
+  for (const other of blocks) {
+    if (other === block || !other.locked) continue;
+    
+    // Check horizontal overlap
+    const hOverlap = other.x + other.w / 2 > block.x - block.w / 2 &&
+                     other.x - other.w / 2 < block.x + block.w / 2;
+    
+    // Check if other is resting on top of block
+    const vSupport = other.y + other.h / 2 >= block.y - block.h / 2 - 10 &&
+                     other.y - other.h / 2 <= block.y + block.h / 2 + 10;
+    
+    if (hOverlap && vSupport) {
+      other.locked = false;
+      other.sleeping = false;
+      wakeConnectedBlocks(other); // Recursive wake for chain reactions
+    }
   }
 }
 
@@ -273,14 +347,15 @@ function updateBird() {
 }
 
 function updateBlocks() {
-  // Wake up blocks that are hit or lose support
+  // Update non-sleeping blocks
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i];
+    if (b.locked) continue;
     if (b.sleeping) continue;
 
     // Apply physics
     b.vy += GRAVITY;
-    b.vx *= FRICTION;
+    b.vx *= FRICTION * 0.85; // Reduced friction for better destruction
     b.x += b.vx;
     b.y += b.vy;
     b.angle += b.angVel;
@@ -323,9 +398,12 @@ function updateBlocks() {
         // Wake up the block
         b.sleeping = false;
         const speed = Math.sqrt(bird.vx * bird.vx + bird.vy * bird.vy);
-        b.vx += bird.vx * 0.6 / b.mass;
-        b.vy += bird.vy * 0.6 / b.mass;
-        b.angVel += (Math.random() - 0.5) * 0.1 * speed / b.mass;
+        // Increased impact force for better destruction
+        b.vx += bird.vx * 1.2 / b.mass;
+        b.vy += bird.vy * 1.2 / b.mass;
+        b.angVel += (Math.random() - 0.5) * 0.15 * speed / b.mass;
+        // Wake connected blocks for chain reactions
+        wakeConnectedBlocks(b);
         bird.vx *= -0.3;
         bird.vy *= -0.3;
         bird.landed = true;
@@ -344,67 +422,103 @@ function circleRectCollision(circle, rect) {
 }
 
 function resolveBlockCollisionStable(a, b) {
-  const dx = a.x - b.x, dy = a.y - b.y;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  const minDist = (Math.max(a.w, a.h) + Math.max(b.w, b.h)) / 2;
+  // Rectangle-vs-rectangle collision detection
+  const overlapX = Math.min(a.x + a.w / 2, b.x + b.w / 2) - Math.max(a.x - a.w / 2, b.x - b.w / 2);
+  const overlapY = Math.min(a.y + a.h / 2, b.y + b.h / 2) - Math.max(a.y - a.h / 2, b.y - b.h / 2);
   
-  if (dist < minDist && dist > 0.1) {
-    const nx = dx / dist, ny = dy / dist;
-    const overlap = minDist - dist;
-    
-    // Separate only by exact overlap amount
-    a.x += nx * overlap * 0.5;
-    b.x -= nx * overlap * 0.5;
+  // No collision if no overlap on both axes
+  if (overlapX <= 0 || overlapY <= 0) return;
+  
+  // Separate on the smallest overlap axis
+  if (overlapY < overlapX) {
+    // Vertical collision (blocks stacking)
+    if (a.y < b.y) {
+      a.y -= overlapY / 2;
+      b.y += overlapY / 2;
+    } else {
+      a.y += overlapY / 2;
+      b.y -= overlapY / 2;
+    }
+    // Stop vertical movement to allow stacking
+    a.vy = 0;
+    b.vy = 0;
+  } else {
+    // Horizontal collision (side-to-side)
+    if (a.x < b.x) {
+      a.x -= overlapX / 2;
+      b.x += overlapX / 2;
+    } else {
+      a.x += overlapX / 2;
+      b.x -= overlapX / 2;
+    }
+    // Dampen horizontal movement
+    a.vx *= 0.4;
+    b.vx *= 0.4;
   }
 }
 
 function resolveBlockCollision(a, b) {
-  const dx = a.x - b.x, dy = a.y - b.y;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  const minDist = (Math.max(a.w, a.h) + Math.max(b.w, b.h)) / 2;
+  // Skip if both blocks are locked (static)
+  if (a.locked && b.locked) return;
   
-  if (dist < minDist && dist > 0.1) {
-    const relVx = a.vx - b.vx, relVy = a.vy - b.vy;
-    const relSpeed = Math.sqrt(relVx * relVx + relVy * relVy);
+  // Rectangle-vs-rectangle collision detection
+  const overlapX = Math.min(a.x + a.w / 2, b.x + b.w / 2) - Math.max(a.x - a.w / 2, b.x - b.w / 2);
+  const overlapY = Math.min(a.y + a.h / 2, b.y + b.h / 2) - Math.max(a.y - a.h / 2, b.y - b.h / 2);
+  
+  // No collision if no overlap on both axes
+  if (overlapX <= 0 || overlapY <= 0) return;
+  
+  const relVx = a.vx - b.vx, relVy = a.vy - b.vy;
+  
+  // Separate on the smallest overlap axis
+  if (overlapY < overlapX) {
+    // Vertical collision (blocks stacking)
+    if (a.y < b.y) {
+      a.y -= overlapY / 2;
+      b.y += overlapY / 2;
+    } else {
+      a.y += overlapY / 2;
+      b.y -= overlapY / 2;
+    }
     
-    const nx = dx / dist, ny = dy / dist;
-    const overlap = minDist - dist;
+    // Wake up sleeping blocks on impact
+    if (a.sleeping && Math.abs(relVy) > 0.5) a.sleeping = false;
+    if (b.sleeping && Math.abs(relVy) > 0.5) b.sleeping = false;
     
-    // Only separate if blocks are actually colliding
-    const approach = relVx * nx + relVy * ny;
-    if (approach > 0 || overlap > 0.5) {
-      // Wake up sleeping blocks on impact
-      if (a.sleeping && relSpeed > 0.5) a.sleeping = false;
-      if (b.sleeping && relSpeed > 0.5) b.sleeping = false;
-      
-      // Minimal separation - just enough to prevent overlap
-      const separateDist = Math.max(overlap / 2, 0.1);
-      a.x += nx * separateDist;
-      b.x -= nx * separateDist;
-      
-      // Normal impulse
-      if (approach > 0) {
-        const massRatio = b.mass / (a.mass + b.mass);
-        a.vx -= approach * nx * massRatio * 0.5;
-        a.vy -= approach * ny * massRatio * 0.5;
-        b.vx += approach * nx * (1 - massRatio) * 0.5;
-        b.vy += approach * ny * (1 - massRatio) * 0.5;
-      }
-      
-      // High friction between blocks
-      const tx = -ny, ty = nx;
-      const tangentVel = relVx * tx + relVy * ty;
-      
-      if (Math.abs(tangentVel) > 0.05) {
-        const frictionDir = tangentVel > 0 ? 1 : -1;
-        const massRatio = b.mass / (a.mass + b.mass);
-        const frictionMagnitude = Math.abs(tangentVel) * 0.8;
-        
-        a.vx -= frictionDir * tx * frictionMagnitude * massRatio * 1.5;
-        a.vy -= frictionDir * ty * frictionMagnitude * massRatio * 1.5;
-        b.vx += frictionDir * tx * frictionMagnitude * (1 - massRatio) * 1.5;
-        b.vy += frictionDir * ty * frictionMagnitude * (1 - massRatio) * 1.5;
-      }
+    // Only apply impulse if blocks are moving toward each other
+    if ((a.y < b.y && a.vy > b.vy) || (a.y > b.y && a.vy < b.vy)) {
+      const massRatio = b.mass / (a.mass + b.mass);
+      const impulse = relVy * 0.3;
+      a.vy -= impulse * massRatio;
+      b.vy += impulse * (1 - massRatio);
+    }
+    
+    // High friction on vertical surfaces
+    const massRatio = b.mass / (a.mass + b.mass);
+    const frictionMagnitude = Math.abs(relVx) * 0.7;
+    const frictionDir = relVx > 0 ? -1 : 1;
+    a.vx += frictionDir * frictionMagnitude * massRatio;
+    b.vx -= frictionDir * frictionMagnitude * (1 - massRatio);
+  } else {
+    // Horizontal collision (side-to-side)
+    if (a.x < b.x) {
+      a.x -= overlapX / 2;
+      b.x += overlapX / 2;
+    } else {
+      a.x += overlapX / 2;
+      b.x -= overlapX / 2;
+    }
+    
+    // Wake up sleeping blocks
+    if (a.sleeping && Math.abs(relVx) > 0.5) a.sleeping = false;
+    if (b.sleeping && Math.abs(relVx) > 0.5) b.sleeping = false;
+    
+    // Only apply impulse if blocks are moving toward each other
+    if ((a.x < b.x && a.vx > b.vx) || (a.x > b.x && a.vx < b.vx)) {
+      const massRatio = b.mass / (a.mass + b.mass);
+      const impulse = relVx * 0.3;
+      a.vx -= impulse * massRatio * 0.4;
+      b.vx += impulse * (1 - massRatio) * 0.4;
     }
   }
 }
@@ -427,12 +541,14 @@ function updateParticles() {
   }
 }
 
-// --- CHECK WIN/LOSE ---
+// CHECK WIN/LOSE
 function allBlocksOff() {
-  return blocks.every(b => {
-    const onPlat = b.x > PLATFORM_X && b.x < PLATFORM_X + PLATFORM_W && b.y + b.h / 2 >= PLATFORM_Y - 5 && b.y < PLATFORM_Y;
-    return !onPlat;
-  });
+  // Tower is cleared only if all blocks have fallen off the platform
+  const remainingBlocks = blocks.filter(b => 
+    b.x + b.w / 2 > PLATFORM_X && 
+    b.x - b.w / 2 < PLATFORM_X + PLATFORM_W
+  );
+  return remainingBlocks.length === 0;
 }
 
 function isSettled() {
@@ -597,12 +713,13 @@ function getPos(e) {
   return { x: t.clientX - rect.left, y: t.clientY - rect.top };
 }
 
-canvas.addEventListener('mousedown', onDown);
-canvas.addEventListener('mousemove', onMove);
-canvas.addEventListener('mouseup', onUp);
-canvas.addEventListener('touchstart', e => { e.preventDefault(); onDown(e); }, { passive: false });
-canvas.addEventListener('touchmove', e => { e.preventDefault(); onMove(e); }, { passive: false });
-canvas.addEventListener('touchend', e => { e.preventDefault(); onUp(e); }, { passive: false });
+canvas.addEventListener('mousedown', onDown, false);
+canvas.addEventListener('mousemove', onMove, false);
+canvas.addEventListener('mouseup', onUp, false);
+canvas.addEventListener('touchstart', onDown, { passive: false });
+canvas.addEventListener('touchmove', onMove, { passive: false });
+canvas.addEventListener('touchend', onUp, { passive: false });
+document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 
 function onDown(e) {
   if (gameState !== 'playing') return;
@@ -741,5 +858,5 @@ loop();
 
 lucide.createIcons();
 </script>
- <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a03f8b97787b6749',t:'MTc4MDE2MzA1MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a03fa420bd78daac',t:'MTc4MDE2NDA1NQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
