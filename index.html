@@ -1,0 +1,643 @@
+<!doctype html>
+<html class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Slingshot Tower Smash</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+  <script src="/_sdk/element_sdk.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&amp;display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
+    canvas { display: block; }
+    .fredoka { font-family: 'Fredoka One', cursive; }
+    .btn-mode { transition: all 0.2s; }
+    .btn-mode:hover { transform: scale(1.05); }
+    .btn-mode:active { transform: scale(0.95); }
+  </style>
+  <style>body { box-sizing: border-box; }</style>
+  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
+ </head>
+ <body class="h-full">
+  <div id="app" class="h-full w-full relative">
+   <canvas id="gameCanvas"></canvas><!-- HUD -->
+   <div id="hud" class="absolute top-0 left-0 w-full p-3 flex justify-between items-center pointer-events-none" style="display:none;">
+    <div class="flex items-center gap-4">
+     <div class="bg-black/50 rounded-xl px-4 py-2 text-white fredoka text-lg"><span id="scoreDisplay">Score: 0</span>
+     </div>
+     <div class="bg-black/50 rounded-xl px-4 py-2 text-white fredoka text-lg"><span id="bestDisplay">Best: 0</span>
+     </div>
+    </div>
+    <div class="flex items-center gap-4">
+     <div id="birdsDisplay" class="bg-black/50 rounded-xl px-4 py-2 text-white fredoka text-lg"></div>
+     <div class="bg-black/50 rounded-xl px-4 py-2 text-yellow-300 fredoka text-lg"><span id="modeDisplay">Easy</span>
+     </div>
+    </div>
+   </div><!-- Menu -->
+   <div id="menu" class="absolute inset-0 flex flex-col items-center justify-center" style="background: linear-gradient(180deg, #87CEEB 0%, #4BA3D4 100%);">
+    <h1 id="titleText" class="fredoka text-5xl md:text-7xl text-white mb-2 drop-shadow-lg">Slingshot Tower Smash</h1>
+    <p class="fredoka text-xl text-white/80 mb-8">Destroy towers with physics!</p>
+    <div class="flex flex-col gap-3 w-64"><button class="btn-mode bg-green-500 hover:bg-green-600 text-white fredoka text-xl py-3 rounded-xl shadow-lg" onclick="startGame('easy')">🟢 Easy</button> <button class="btn-mode bg-yellow-500 hover:bg-yellow-600 text-white fredoka text-xl py-3 rounded-xl shadow-lg" onclick="startGame('medium')">🟡 Medium</button> <button class="btn-mode bg-red-500 hover:bg-red-600 text-white fredoka text-xl py-3 rounded-xl shadow-lg" onclick="startGame('hard')">🔴 Hard</button>
+    </div>
+   </div><!-- Game Over -->
+   <div id="gameOver" class="absolute inset-0 flex flex-col items-center justify-center bg-black/60" style="display:none;">
+    <h2 class="fredoka text-5xl text-white mb-4">Game Over!</h2>
+    <p class="fredoka text-2xl text-yellow-300 mb-2" id="finalScore"></p>
+    <p class="fredoka text-xl text-white/80 mb-6" id="finalBest"></p><button class="btn-mode bg-blue-500 hover:bg-blue-600 text-white fredoka text-xl px-8 py-3 rounded-xl shadow-lg" onclick="showMenu()">Play Again</button>
+   </div><!-- Tower Cleared -->
+   <div id="clearedMsg" class="absolute top-1/3 left-1/2 -translate-x-1/2 pointer-events-none" style="display:none;">
+    <h2 class="fredoka text-4xl text-green-400 drop-shadow-lg animate-bounce">Tower Cleared! 🎉</h2>
+   </div>
+  </div>
+  <script>
+// --- CONFIG & SDK ---
+const defaultConfig = {
+  game_title: "Slingshot Tower Smash",
+  background_color: "#87CEEB",
+  surface_color: "#4a2c0a",
+  text_color: "#ffffff",
+  primary_action_color: "#4CAF50",
+  secondary_action_color: "#2196F3",
+  font_family: "Fredoka One",
+  font_size: 16
+};
+
+function applyConfig(config) {
+  const title = config.game_title || defaultConfig.game_title;
+  document.getElementById('titleText').textContent = title;
+  document.title = title;
+}
+
+window.elementSdk.init({
+  defaultConfig,
+  onConfigChange: async (config) => applyConfig(config),
+  mapToCapabilities: (config) => ({
+    recolorables: [
+      { get: () => config.background_color || defaultConfig.background_color, set: (v) => { config.background_color = v; window.elementSdk.setConfig({ background_color: v }); }},
+      { get: () => config.surface_color || defaultConfig.surface_color, set: (v) => { config.surface_color = v; window.elementSdk.setConfig({ surface_color: v }); }},
+      { get: () => config.text_color || defaultConfig.text_color, set: (v) => { config.text_color = v; window.elementSdk.setConfig({ text_color: v }); }},
+      { get: () => config.primary_action_color || defaultConfig.primary_action_color, set: (v) => { config.primary_action_color = v; window.elementSdk.setConfig({ primary_action_color: v }); }},
+      { get: () => config.secondary_action_color || defaultConfig.secondary_action_color, set: (v) => { config.secondary_action_color = v; window.elementSdk.setConfig({ secondary_action_color: v }); }}
+    ],
+    borderables: [],
+    fontEditable: { get: () => config.font_family || defaultConfig.font_family, set: (v) => { config.font_family = v; window.elementSdk.setConfig({ font_family: v }); }},
+    fontSizeable: { get: () => config.font_size || defaultConfig.font_size, set: (v) => { config.font_size = v; window.elementSdk.setConfig({ font_size: v }); }}
+  }),
+  mapToEditPanelValues: (config) => new Map([
+    ["game_title", config.game_title || defaultConfig.game_title]
+  ])
+});
+
+// --- AUDIO ---
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx;
+function ensureAudio() { if (!audioCtx) audioCtx = new AudioCtx(); }
+
+function playSound(freq, type, duration, vol=0.3) {
+  ensureAudio();
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.value = freq;
+  g.gain.value = vol;
+  g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + duration);
+}
+
+function playLaunch() { playSound(300, 'sine', 0.2, 0.4); setTimeout(() => playSound(500, 'sine', 0.15, 0.3), 50); }
+function playHit() { playSound(150, 'square', 0.1, 0.2); playSound(80, 'sawtooth', 0.15, 0.15); }
+function playClear() { [400,500,600,800].forEach((f,i) => setTimeout(() => playSound(f, 'sine', 0.2, 0.3), i*100)); }
+
+// --- GAME STATE ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let W, H, GROUND_Y, PLATFORM_X, PLATFORM_W, PLATFORM_Y;
+let gameState = 'menu'; // menu, playing, aiming, flying, settling, gameover
+let difficulty = 'easy';
+let score = 0, best = 0, birdsLeft = 5;
+let bird = null, blocks = [], particles = [];
+let dragStart = null, dragCurrent = null, isDragging = false;
+let settleTimer = 0;
+const SLINGSHOT_X = 120, SLINGSHOT_Y_OFFSET = -60;
+const GRAVITY = 0.35, FRICTION = 0.98, BOUNCE = 0.4;
+const MAX_PULL = 120;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  GROUND_Y = H - 60;
+  PLATFORM_X = W * 0.6;
+  PLATFORM_W = 160;
+  PLATFORM_Y = GROUND_Y;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- BIRD ---
+function createBird() {
+  return { x: SLINGSHOT_X, y: GROUND_Y + SLINGSHOT_Y_OFFSET, vx: 0, vy: 0, r: 18, active: false, landed: false };
+}
+
+// --- BLOCK GENERATION ---
+function randInt(a, b) { return Math.floor(Math.random() * (b - a + 1)) + a; }
+function rand(a, b) { return a + Math.random() * (b - a); }
+
+function generateTower() {
+  blocks = [];
+  const cfg = {
+    easy: { layers: randInt(3, 5), maxW: 50, stability: 0.3 },
+    medium: { layers: randInt(5, 7), maxW: 45, stability: 0.6 },
+    hard: { layers: randInt(6, 9), maxW: 40, stability: 0.85 }
+  }[difficulty];
+
+  const baseX = PLATFORM_X + PLATFORM_W / 2;
+  let curY = PLATFORM_Y;
+
+  for (let layer = 0; layer < cfg.layers; layer++) {
+    const numBlocks = randInt(1, 3);
+    const blockH = randInt(20, 35);
+    const totalW = numBlocks * cfg.maxW;
+    let startX = baseX - totalW / 2;
+
+    // Add wobble for easier modes
+    if (Math.random() > cfg.stability) {
+      startX += rand(-15, 15);
+    }
+
+    for (let i = 0; i < numBlocks; i++) {
+      const w = randInt(25, cfg.maxW);
+      const type = Math.random() < 0.6 ? 'wood' : 'stone';
+      const offsetX = Math.random() > cfg.stability ? rand(-8, 8) : 0;
+      blocks.push({
+        x: startX + i * cfg.maxW + cfg.maxW / 2 + offsetX,
+        y: curY - blockH / 2,
+        w, h: blockH,
+        vx: 0, vy: 0, angle: 0, angVel: 0,
+        type, mass: type === 'stone' ? 3 : 1.5,
+        onPlatform: true
+      });
+    }
+    curY -= blockH;
+
+    // Sometimes add a horizontal plank
+    if (Math.random() < 0.4 && layer < cfg.layers - 1) {
+      const pw = randInt(60, 100);
+      const ph = 10;
+      curY -= ph / 2;
+      blocks.push({
+        x: baseX + (Math.random() > cfg.stability ? rand(-10, 10) : 0),
+        y: curY,
+        w: pw, h: ph,
+        vx: 0, vy: 0, angle: 0, angVel: 0,
+        type: 'plank', mass: 1,
+        onPlatform: true
+      });
+      curY -= ph / 2;
+    }
+  }
+}
+
+// --- PHYSICS ---
+function updateBird() {
+  if (!bird.active) return;
+  bird.vy += GRAVITY;
+  bird.x += bird.vx;
+  bird.y += bird.vy;
+
+  // Ground collision
+  if (bird.y + bird.r > GROUND_Y) {
+    bird.y = GROUND_Y - bird.r;
+    bird.vy *= -BOUNCE;
+    bird.vx *= FRICTION;
+    if (Math.abs(bird.vy) < 1) { bird.vy = 0; bird.landed = true; }
+  }
+  // Walls
+  if (bird.x > W + 50 || bird.x < -50) bird.landed = true;
+}
+
+function updateBlocks() {
+  for (const b of blocks) {
+    b.vy += GRAVITY;
+    b.vx *= FRICTION;
+    b.x += b.vx;
+    b.y += b.vy;
+    b.angle += b.angVel;
+    b.angVel *= 0.95;
+
+    // Ground
+    if (b.y + b.h / 2 > GROUND_Y) {
+      b.y = GROUND_Y - b.h / 2;
+      b.vy *= -BOUNCE * 0.5;
+      b.vx *= 0.8;
+      b.angVel *= 0.7;
+      if (Math.abs(b.vy) < 0.5) b.vy = 0;
+    }
+
+    // Platform collision
+    if (b.x > PLATFORM_X && b.x < PLATFORM_X + PLATFORM_W && b.y + b.h / 2 > PLATFORM_Y && b.y - b.h / 2 < PLATFORM_Y) {
+      if (b.vy > 0) {
+        b.y = PLATFORM_Y - b.h / 2;
+        b.vy *= -BOUNCE * 0.3;
+        if (Math.abs(b.vy) < 0.5) b.vy = 0;
+      }
+    }
+
+    // Walls
+    if (b.x < b.w / 2) { b.x = b.w / 2; b.vx *= -0.3; }
+    if (b.x > W - b.w / 2) { b.x = W - b.w / 2; b.vx *= -0.3; }
+  }
+
+  // Block-block collisions (simple)
+  for (let i = 0; i < blocks.length; i++) {
+    for (let j = i + 1; j < blocks.length; j++) {
+      resolveBlockCollision(blocks[i], blocks[j]);
+    }
+  }
+
+  // Bird-block collisions
+  if (bird && bird.active && !bird.landed) {
+    for (const b of blocks) {
+      if (circleRectCollision(bird, b)) {
+        const speed = Math.sqrt(bird.vx * bird.vx + bird.vy * bird.vy);
+        const nx = (bird.x - b.x) / (Math.max(b.w, b.h));
+        const ny = (bird.y - b.y) / (Math.max(b.w, b.h));
+        b.vx += bird.vx * 0.6 / b.mass;
+        b.vy += bird.vy * 0.6 / b.mass;
+        b.angVel += (Math.random() - 0.5) * 0.1 * speed / b.mass;
+        bird.vx *= -0.3;
+        bird.vy *= -0.3;
+        bird.landed = true;
+        playHit();
+        spawnParticles(bird.x, bird.y, 8);
+      }
+    }
+  }
+}
+
+function circleRectCollision(circle, rect) {
+  const cx = Math.max(rect.x - rect.w / 2, Math.min(circle.x, rect.x + rect.w / 2));
+  const cy = Math.max(rect.y - rect.h / 2, Math.min(circle.y, rect.y + rect.h / 2));
+  const dx = circle.x - cx, dy = circle.y - cy;
+  return (dx * dx + dy * dy) < (circle.r * circle.r);
+}
+
+function resolveBlockCollision(a, b) {
+  const dx = a.x - b.x, dy = a.y - b.y;
+  const overlapX = (a.w + b.w) / 2 - Math.abs(dx);
+  const overlapY = (a.h + b.h) / 2 - Math.abs(dy);
+  if (overlapX > 0 && overlapY > 0) {
+    if (overlapX < overlapY) {
+      const sign = dx > 0 ? 1 : -1;
+      a.x += overlapX * 0.5 * sign;
+      b.x -= overlapX * 0.5 * sign;
+      const relVx = a.vx - b.vx;
+      a.vx -= relVx * 0.5; b.vx += relVx * 0.5;
+    } else {
+      const sign = dy > 0 ? 1 : -1;
+      a.y += overlapY * 0.5 * sign;
+      b.y -= overlapY * 0.5 * sign;
+      const relVy = a.vy - b.vy;
+      a.vy -= relVy * 0.5; b.vy += relVy * 0.5;
+    }
+    a.angVel += (Math.random() - 0.5) * 0.02;
+    b.angVel += (Math.random() - 0.5) * 0.02;
+  }
+}
+
+// --- PARTICLES ---
+function spawnParticles(x, y, count) {
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x, y, vx: rand(-4, 4), vy: rand(-6, -1),
+      life: 1, color: ['#FFD700', '#FF6B35', '#FFF'][randInt(0, 2)], size: rand(3, 7)
+    });
+  }
+}
+
+function updateParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life -= 0.03;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+// --- CHECK WIN/LOSE ---
+function allBlocksOff() {
+  return blocks.every(b => {
+    const onPlat = b.x > PLATFORM_X && b.x < PLATFORM_X + PLATFORM_W && b.y + b.h / 2 >= PLATFORM_Y - 5 && b.y < PLATFORM_Y;
+    return !onPlat;
+  });
+}
+
+function isSettled() {
+  const totalMotion = blocks.reduce((s, b) => s + Math.abs(b.vx) + Math.abs(b.vy), 0);
+  return totalMotion < 2 && (!bird || !bird.active || bird.landed);
+}
+
+// --- DRAWING ---
+function draw() {
+  // Sky gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#87CEEB');
+  grad.addColorStop(1, '#4BA3D4');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Ground
+  ctx.fillStyle = '#5D8C3E';
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+  ctx.fillStyle = '#4a7a2e';
+  ctx.fillRect(0, GROUND_Y, W, 4);
+
+  // Platform
+  ctx.fillStyle = '#8B6914';
+  ctx.fillRect(PLATFORM_X, PLATFORM_Y - 8, PLATFORM_W, 8);
+  ctx.fillStyle = '#6B4F0A';
+  ctx.fillRect(PLATFORM_X + 20, PLATFORM_Y, 10, H - PLATFORM_Y);
+  ctx.fillRect(PLATFORM_X + PLATFORM_W - 30, PLATFORM_Y, 10, H - PLATFORM_Y);
+
+  // Slingshot
+  drawSlingshot();
+
+  // Trajectory
+  if (isDragging && dragCurrent) drawTrajectory();
+
+  // Bird
+  if (bird) drawBird();
+
+  // Blocks
+  for (const b of blocks) drawBlock(b);
+
+  // Particles
+  for (const p of particles) {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawSlingshot() {
+  const baseY = GROUND_Y;
+  const sx = SLINGSHOT_X;
+  // Back fork
+  ctx.fillStyle = '#6B3A0A';
+  ctx.fillRect(sx - 18, baseY - 80, 8, 80);
+  // Front fork
+  ctx.fillRect(sx + 10, baseY - 80, 8, 80);
+  // Base
+  ctx.fillStyle = '#8B5A1A';
+  ctx.fillRect(sx - 12, baseY - 20, 24, 20);
+  // Fork tops
+  ctx.fillStyle = '#4a2c0a';
+  ctx.beginPath(); ctx.arc(sx - 14, baseY - 80, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(sx + 14, baseY - 80, 6, 0, Math.PI * 2); ctx.fill();
+
+  // Rubber band
+  if (isDragging && bird) {
+    ctx.strokeStyle = '#8B4513';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(sx - 14, baseY - 80); ctx.lineTo(bird.x, bird.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx + 14, baseY - 80); ctx.lineTo(bird.x, bird.y); ctx.stroke();
+  } else if (bird && !bird.active) {
+    ctx.strokeStyle = '#8B4513';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(sx - 14, baseY - 80); ctx.lineTo(bird.x, bird.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx + 14, baseY - 80); ctx.lineTo(bird.x, bird.y); ctx.stroke();
+  }
+}
+
+function drawBird() {
+  const b = bird;
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  // Body
+  ctx.fillStyle = '#FF4444';
+  ctx.beginPath(); ctx.arc(0, 0, b.r, 0, Math.PI * 2); ctx.fill();
+  // Belly
+  ctx.fillStyle = '#FFCCAA';
+  ctx.beginPath(); ctx.arc(0, 4, b.r * 0.55, 0, Math.PI * 2); ctx.fill();
+  // Eyes
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(-5, -4, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(5, -4, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.arc(-4, -3, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(6, -3, 3, 0, Math.PI * 2); ctx.fill();
+  // Beak
+  ctx.fillStyle = '#FFA500';
+  ctx.beginPath(); ctx.moveTo(8, 2); ctx.lineTo(16, 4); ctx.lineTo(8, 7); ctx.closePath(); ctx.fill();
+  // Eyebrows (angry)
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-9, -10); ctx.lineTo(-2, -8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(9, -10); ctx.lineTo(2, -8); ctx.stroke();
+  ctx.restore();
+}
+
+function drawBlock(b) {
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  ctx.rotate(b.angle);
+  const colors = { wood: '#C8882A', stone: '#888', plank: '#A0722A' };
+  const borders = { wood: '#8B5E1A', stone: '#555', plank: '#7A5520' };
+  ctx.fillStyle = colors[b.type];
+  ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h);
+  ctx.strokeStyle = borders[b.type];
+  ctx.lineWidth = 2;
+  ctx.strokeRect(-b.w / 2, -b.h / 2, b.w, b.h);
+  // Wood grain
+  if (b.type === 'wood' || b.type === 'plank') {
+    ctx.strokeStyle = '#8B5E1A44';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      const y = -b.h / 2 + (b.h / 4) * (i + 1);
+      ctx.beginPath(); ctx.moveTo(-b.w / 2 + 2, y); ctx.lineTo(b.w / 2 - 2, y); ctx.stroke();
+    }
+  }
+  // Stone cracks
+  if (b.type === 'stone') {
+    ctx.strokeStyle = '#55555544'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-b.w / 4, -b.h / 2); ctx.lineTo(0, 0); ctx.lineTo(b.w / 4, b.h / 2); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawTrajectory() {
+  const sx = SLINGSHOT_X, sy = GROUND_Y + SLINGSHOT_Y_OFFSET;
+  const dx = sx - bird.x, dy = sy - bird.y;
+  const power = Math.min(Math.sqrt(dx * dx + dy * dy), MAX_PULL) / MAX_PULL;
+  const vx = dx * 0.15, vy = dy * 0.15;
+
+  ctx.setLineDash([5, 8]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  let px = sx, py = sy, pvx = vx, pvy = vy;
+  ctx.moveTo(px, py);
+  for (let i = 0; i < 30; i++) {
+    pvy += GRAVITY;
+    px += pvx; py += pvy;
+    if (py > GROUND_Y) break;
+    ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// --- INPUT ---
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const t = e.touches ? e.touches[0] : e;
+  return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+}
+
+canvas.addEventListener('mousedown', onDown);
+canvas.addEventListener('mousemove', onMove);
+canvas.addEventListener('mouseup', onUp);
+canvas.addEventListener('touchstart', e => { e.preventDefault(); onDown(e); }, { passive: false });
+canvas.addEventListener('touchmove', e => { e.preventDefault(); onMove(e); }, { passive: false });
+canvas.addEventListener('touchend', e => { e.preventDefault(); onUp(e); }, { passive: false });
+
+function onDown(e) {
+  if (gameState !== 'playing') return;
+  ensureAudio();
+  const pos = getPos(e);
+  if (!bird || bird.active) return;
+  const dx = pos.x - bird.x, dy = pos.y - bird.y;
+  if (dx * dx + dy * dy < 1600) {
+    isDragging = true;
+    dragStart = pos;
+    gameState = 'aiming';
+  }
+}
+
+function onMove(e) {
+  if (!isDragging) return;
+  const pos = getPos(e);
+  dragCurrent = pos;
+  const sx = SLINGSHOT_X, sy = GROUND_Y + SLINGSHOT_Y_OFFSET;
+  let dx = pos.x - sx, dy = pos.y - sy;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist > MAX_PULL) { dx = dx / dist * MAX_PULL; dy = dy / dist * MAX_PULL; }
+  bird.x = sx + dx; bird.y = sy + dy;
+}
+
+function onUp(e) {
+  if (!isDragging) return;
+  isDragging = false;
+  const sx = SLINGSHOT_X, sy = GROUND_Y + SLINGSHOT_Y_OFFSET;
+  const dx = sx - bird.x, dy = sy - bird.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 10) { bird.x = sx; bird.y = sy; gameState = 'playing'; return; }
+  bird.vx = dx * 0.15;
+  bird.vy = dy * 0.15;
+  bird.active = true;
+  gameState = 'flying';
+  playLaunch();
+}
+
+// --- GAME FLOW ---
+function startGame(mode) {
+  difficulty = mode;
+  score = 0;
+  birdsLeft = 5;
+  document.getElementById('menu').style.display = 'none';
+  document.getElementById('gameOver').style.display = 'none';
+  document.getElementById('hud').style.display = 'flex';
+  document.getElementById('modeDisplay').textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+  newRound();
+  gameState = 'playing';
+}
+
+function newRound() {
+  generateTower();
+  bird = createBird();
+  particles = [];
+  settleTimer = 0;
+  updateHUD();
+}
+
+function showMenu() {
+  gameState = 'menu';
+  document.getElementById('menu').style.display = 'flex';
+  document.getElementById('gameOver').style.display = 'none';
+  document.getElementById('hud').style.display = 'none';
+}
+
+function gameOver() {
+  gameState = 'gameover';
+  if (score > best) best = score;
+  document.getElementById('finalScore').textContent = `Towers Destroyed: ${score}`;
+  document.getElementById('finalBest').textContent = `Best: ${best}`;
+  document.getElementById('gameOver').style.display = 'flex';
+}
+
+function updateHUD() {
+  document.getElementById('scoreDisplay').textContent = `Score: ${score}`;
+  document.getElementById('bestDisplay').textContent = `Best: ${best}`;
+  let birdStr = '';
+  for (let i = 0; i < birdsLeft; i++) birdStr += '🐦';
+  document.getElementById('birdsDisplay').textContent = birdStr || '💀';
+}
+
+// --- GAME LOOP ---
+function update() {
+  if (gameState === 'flying' || gameState === 'settling') {
+    updateBird();
+    updateBlocks();
+    updateParticles();
+
+    if (bird.landed || (bird.active && bird.y > H + 50)) {
+      if (gameState === 'flying') {
+        gameState = 'settling';
+        settleTimer = 0;
+      }
+    }
+
+    if (gameState === 'settling') {
+      settleTimer++;
+      if (isSettled() || settleTimer > 180) {
+        // Check if tower cleared
+        if (allBlocksOff()) {
+          score++;
+          playClear();
+          document.getElementById('clearedMsg').style.display = 'block';
+          setTimeout(() => {
+            document.getElementById('clearedMsg').style.display = 'none';
+            birdsLeft = 5;
+            newRound();
+            gameState = 'playing';
+          }, 1500);
+          gameState = 'menu'; // pause temporarily
+          updateHUD();
+          return;
+        }
+
+        birdsLeft--;
+        updateHUD();
+        if (birdsLeft <= 0) {
+          setTimeout(gameOver, 500);
+        } else {
+          bird = createBird();
+          gameState = 'playing';
+        }
+      }
+    }
+  }
+}
+
+function loop() {
+  update();
+  if (gameState !== 'menu' && gameState !== 'gameover') draw();
+  requestAnimationFrame(loop);
+}
+loop();
+
+lucide.createIcons();
+</script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a03f6b6dec2652c6',t:'MTc4MDE2MTczMg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
