@@ -39,7 +39,7 @@
   </style>
   <style>body { box-sizing: border-box; }</style>
   <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
- </head>
+ <script src="/_sdk/telemetry_sdk.js"></script></head>
  <body class="h-full">
   <div id="app" class="h-full w-full relative">
    <canvas id="gameCanvas"></canvas><!-- HUD -->
@@ -182,19 +182,16 @@ function generateTower() {
 
   for (let layer = 0; layer < cfg.layers; layer++) {
     const numBlocks = difficulty === 'hard' ? randInt(2, 3) : (difficulty === 'medium' ? randInt(1, 2) : 1);
-    const blockH = randInt(20, 35);
-    const blockW = randInt(30, cfg.maxW);
+    const blockH = 28; // Fixed height for consistent stacking
+    const blockW = difficulty === 'hard' ? 38 : (difficulty === 'medium' ? 45 : 50); // Fixed widths per difficulty
 
-    // For easy: slightly offset for wobble
-    // For medium/hard: perfectly centered
-    let layerOffsetX = 0;
-
-    const totalW = numBlocks * blockW + (numBlocks - 1) * 4;
-    let startX = baseX + layerOffsetX - totalW / 2;
+    // Perfect centering - no random offsets
+    const totalW = numBlocks * blockW + (numBlocks - 1) * 2; // 2px gap between blocks
+    let startX = baseX - totalW / 2;
 
     for (let i = 0; i < numBlocks; i++) {
       const type = Math.random() < 0.65 ? 'wood' : 'stone';
-      const x = startX + i * (blockW + 4) + blockW / 2;
+      const x = startX + i * (blockW + 2) + blockW / 2;
       const y = curY - blockH / 2;
 
       blocks.push({
@@ -203,12 +200,13 @@ function generateTower() {
         type, mass: type === 'stone' ? 2 : 1,
         sleeping: true, // Blocks start sleeping
         locked: true, // Blocks start locked
-        supportedBy: null // Track what block supports this one
+        supportedBy: null, // Track what block supports this one
+        restFrames: 0 // Counter for stable resting
       });
     }
 
-    // Move up for next layer (no gap, blocks touch)
-    curY -= blockH + 2;
+    // Move up for next layer (exactly stacked, no gap)
+    curY -= blockH;
   }
 
   // Tower is locked and ready - no stabilization needed
@@ -347,7 +345,7 @@ function updateBird() {
 }
 
 function updateBlocks() {
-  // Update non-sleeping blocks
+  // Update non-sleeping blocks (CONTINUOUS - not gated by bird state)
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i];
     if (b.locked) continue;
@@ -355,11 +353,16 @@ function updateBlocks() {
 
     // Apply physics
     b.vy += GRAVITY;
-    b.vx *= FRICTION * 0.85; // Reduced friction for better destruction
+    b.vx *= FRICTION; // Normal friction during flight
     b.x += b.vx;
     b.y += b.vy;
     b.angle += b.angVel;
     b.angVel *= 0.95;
+    
+    // Reset rest frame counter when moving
+    if (Math.abs(b.vx) > 0.1 || Math.abs(b.vy) > 0.1) {
+      b.restFrames = 0;
+    }
 
     // Ground collision
     if (b.y + b.h / 2 > GROUND_Y) {
@@ -384,14 +387,14 @@ function updateBlocks() {
     if (b.x > W - b.w / 2) { b.x = W - b.w / 2; b.vx *= -0.3; }
   }
 
-  // Block-block collisions
+  // Block-block collisions (CONTINUOUS - runs every frame)
   for (let i = 0; i < blocks.length; i++) {
     for (let j = i + 1; j < blocks.length; j++) {
       resolveBlockCollision(blocks[i], blocks[j]);
     }
   }
 
-  // Bird-block collisions
+  // Bird-block collisions (only when bird is active)
   if (bird && bird.active && !bird.landed) {
     for (const b of blocks) {
       if (circleRectCollision(bird, b)) {
@@ -451,9 +454,9 @@ function resolveBlockCollisionStable(a, b) {
       a.x += overlapX / 2;
       b.x -= overlapX / 2;
     }
-    // Dampen horizontal movement
-    a.vx *= 0.4;
-    b.vx *= 0.4;
+    // Dampen horizontal movement with reduced friction for momentum transfer
+    a.vx *= 0.85; // Reduced from 0.4 for better chain reactions
+    b.vx *= 0.85;
   }
 }
 
@@ -472,35 +475,31 @@ function resolveBlockCollision(a, b) {
   
   // Separate on the smallest overlap axis
   if (overlapY < overlapX) {
-    // Vertical collision (blocks stacking)
+    // VERTICAL COLLISION - prioritize stable stacking
     if (a.y < b.y) {
+      // a is above b - separate upward
       a.y -= overlapY / 2;
       b.y += overlapY / 2;
     } else {
+      // b is above a - separate downward
       a.y += overlapY / 2;
       b.y -= overlapY / 2;
     }
     
-    // Wake up sleeping blocks on impact
-    if (a.sleeping && Math.abs(relVy) > 0.5) a.sleeping = false;
-    if (b.sleeping && Math.abs(relVy) > 0.5) b.sleeping = false;
+    // Set both vertical velocities to zero for clean stacking
+    a.vy = 0;
+    b.vy = 0;
     
-    // Only apply impulse if blocks are moving toward each other
-    if ((a.y < b.y && a.vy > b.vy) || (a.y > b.y && a.vy < b.vy)) {
-      const massRatio = b.mass / (a.mass + b.mass);
-      const impulse = relVy * 0.3;
-      a.vy -= impulse * massRatio;
-      b.vy += impulse * (1 - massRatio);
-    }
+    // Increment rest frames to detect stable stacking
+    a.restFrames++;
+    b.restFrames++;
     
-    // High friction on vertical surfaces
-    const massRatio = b.mass / (a.mass + b.mass);
-    const frictionMagnitude = Math.abs(relVx) * 0.7;
-    const frictionDir = relVx > 0 ? -1 : 1;
-    a.vx += frictionDir * frictionMagnitude * massRatio;
-    b.vx -= frictionDir * frictionMagnitude * (1 - massRatio);
+    // Wake up sleeping blocks on significant impact
+    if (a.sleeping && Math.abs(relVy) > 1.0) a.sleeping = false;
+    if (b.sleeping && Math.abs(relVy) > 1.0) b.sleeping = false;
+    
   } else {
-    // Horizontal collision (side-to-side)
+    // HORIZONTAL COLLISION - allow sliding with friction
     if (a.x < b.x) {
       a.x -= overlapX / 2;
       b.x += overlapX / 2;
@@ -509,17 +508,14 @@ function resolveBlockCollision(a, b) {
       b.x -= overlapX / 2;
     }
     
-    // Wake up sleeping blocks
-    if (a.sleeping && Math.abs(relVx) > 0.5) a.sleeping = false;
-    if (b.sleeping && Math.abs(relVx) > 0.5) b.sleeping = false;
+    // Wake up sleeping blocks on side impact
+    if (a.sleeping && Math.abs(relVx) > 1.0) a.sleeping = false;
+    if (b.sleeping && Math.abs(relVx) > 1.0) b.sleeping = false;
     
-    // Only apply impulse if blocks are moving toward each other
-    if ((a.x < b.x && a.vx > b.vx) || (a.x > b.x && a.vx < b.vx)) {
-      const massRatio = b.mass / (a.mass + b.mass);
-      const impulse = relVx * 0.3;
-      a.vx -= impulse * massRatio * 0.4;
-      b.vx += impulse * (1 - massRatio) * 0.4;
-    }
+    // Apply friction to horizontal movement (high friction)
+    const frictionFactor = 0.85; // Reduced from 0.65 for better momentum transfer
+    a.vx *= frictionFactor;
+    b.vx *= frictionFactor;
   }
 }
 
@@ -687,21 +683,53 @@ function drawBlock(b) {
 function drawTrajectory() {
   const sx = SLINGSHOT_X, sy = GROUND_Y + SLINGSHOT_Y_OFFSET;
   const dx = sx - bird.x, dy = sy - bird.y;
-  const power = Math.min(Math.sqrt(dx * dx + dy * dy), MAX_PULL) / MAX_PULL;
-  const vx = dx * 0.15, vy = dy * 0.15;
+  const LAUNCH_POWER = 0.21; // Must match onUp() for accurate prediction
+  const vx = dx * LAUNCH_POWER, vy = dy * LAUNCH_POWER;
 
+  // Simulate trajectory using EXACT same physics as real bird
   ctx.setLineDash([5, 8]);
   ctx.strokeStyle = 'rgba(255,255,255,0.6)';
   ctx.lineWidth = 2;
   ctx.beginPath();
+  
   let px = sx, py = sy, pvx = vx, pvy = vy;
   ctx.moveTo(px, py);
-  for (let i = 0; i < 30; i++) {
+  
+  // Simulate exactly as updateBird() does
+  for (let step = 0; step < 60; step++) {
+    // Apply gravity (exact same as updateBird)
     pvy += GRAVITY;
-    px += pvx; py += pvy;
-    if (py > GROUND_Y) break;
+    
+    // Update position (exact same as updateBird)
+    px += pvx;
+    py += pvy;
+    
+    // Ground collision (stop trajectory at ground)
+    if (py + 18 > GROUND_Y) {
+      ctx.lineTo(px, GROUND_Y - 18);
+      break;
+    }
+    
+    // Wall collision (stop at walls)
+    if (px > W + 50 || px < -50) break;
+    
+    // Check for block collision (stop trajectory at first collision)
+    let hitBlock = false;
+    for (const b of blocks) {
+      const cx = Math.max(b.x - b.w / 2, Math.min(px, b.x + b.w / 2));
+      const cy = Math.max(b.y - b.h / 2, Math.min(py, b.y + b.h / 2));
+      const distance_x = px - cx, distance_y = py - cy;
+      if (distance_x * distance_x + distance_y * distance_y < 324) { // 18^2 (bird radius squared)
+        ctx.lineTo(px, py);
+        hitBlock = true;
+        break;
+      }
+    }
+    
+    if (hitBlock) break;
     ctx.lineTo(px, py);
   }
+  
   ctx.stroke();
   ctx.setLineDash([]);
 }
@@ -752,8 +780,9 @@ function onUp(e) {
   const dx = sx - bird.x, dy = sy - bird.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
   if (dist < 10) { bird.x = sx; bird.y = sy; gameState = 'playing'; return; }
-  bird.vx = dx * 0.15;
-  bird.vy = dy * 0.15;
+  const LAUNCH_POWER = 0.21; // Increased from 0.15 (40% more power)
+  bird.vx = dx * LAUNCH_POWER;
+  bird.vy = dy * LAUNCH_POWER;
   bird.active = true;
   gameState = 'flying';
   playLaunch();
@@ -805,10 +834,12 @@ function updateHUD() {
 
 // --- GAME LOOP ---
 function update() {
+  // Block physics runs continuously every frame (not gated by bird state)
+  updateBlocks();
+  updateParticles();
+  
   if (gameState === 'flying' || gameState === 'settling') {
     updateBird();
-    updateBlocks();
-    updateParticles();
 
     if (bird.landed || (bird.active && bird.y > H + 50)) {
       if (gameState === 'flying') {
@@ -858,5 +889,5 @@ loop();
 
 lucide.createIcons();
 </script>
- <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a03fa420bd78daac',t:'MTc4MDE2NDA1NQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a0791c858e496a58',t:'MTc4MDc2NjY3NA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
